@@ -17,6 +17,7 @@ if __name__ == '__main__':
     address, k = topx_utils.parse_command_line('asyncio server using coroutine')
     topx_utils.k = k
     loop = asyncio.get_event_loop()
+    # loop.set_debug(1)
     coro = asyncio.start_server(topx_utils.handle_conversation, *address, reuse_port=True)
     server = loop.run_until_complete(coro)
     print('Listening at {}'.format(address))

@@ -11,77 +11,89 @@ Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
 """
 
 import asyncio
-import argparse, sys, zen_utils
+import argparse
 from os import listdir
 from os.path import isfile, join
-from pathlib import Path
+from time import sleep
+
 
 _PATH_ = "/home/alumnos/PycharmProjects/topX"
-_DATAPATH_ = "{}/ydata-ymusic-user-song-ratings-meta-v1_0/".format(_PATH_)
-k = 0
-n_conn = 0
-k_workers = {}
+# _DATAPATH_ = "{}/ydata-ymusic-user-song-ratings-meta-v1_0/".format(_PATH_)
+_DATAPATH_ = "{}/data/".format(_PATH_)
+
+k = None
+n = 0
+workers = {}
+transports = {}
 
 
-@asyncio.coroutine
-def handle_conversation(reader, writer):
-    global k, k_workers, n_conn
+async def handle_conversation(reader, writer):
+    global workers, transports, k, n
     address = writer.get_extra_info('peername')
     print('Accepted connection from {}'.format(address))
-    n_conn += k
-    k_workers[n_conn] = address
-    print('{} worker(s) connected, waiting for {} more...'.format(n_conn, k - n_conn))
-    if n_conn == k:
-        while True:
-            data = b''
+    if address not in workers.values():
+        n += 1
+        workers[n] = address
+        transports[address] = (reader, writer)
+        print('{} worker(s) connected, waiting for {} more...'.format(n, k - n))
+        await send_hello(writer)
 
-            while not data.endswith(b'\n'):
-                more_data = yield from reader.read(4096)
-                if not more_data:
-                    if data:
-                        print('Client {} sent {!r} but then closed'
-                              .format(address, data))
-                    else:
-                        print('Client {} closed socket normally'.format(address))
-                    return
-                data += more_data
-                print(data)
-            #for i in range(k):
-            yield from send_to(writer, data)
+    if n == k:
+        await send_data(k)
+
+        print('Data successfully sent to workers.')
+        print('wait for response...')
+
+        #await receiving()
+        print('Done')
+    # print('connection closed with {}'.format(address))
 
 
+async def send_data(k):
 
-    n_conn = 0
-    print('connection closed with {}'.format(address))
+    print('Preparing to send data...')
+
+    bcount = 0
+
+    l_of_files = list_files(_DATAPATH_)
+    for f in l_of_files:
+        dat = readd(f)
+        i = 1
+
+        for line in dat:
+            address = workers[i]
+            writer = transports[address][1]
+            length = str(len(line))
+            bcount += len(line.encode())
+            writer.write(length.encode())
+            writer.write(line.encode())
+            i += 1
+            if i > k:
+                i = 1
+
+    print('Done, now sending END notice to workers...')
+
+    for add in workers.values():
+        writer = transports[add][1]
+        end = b'END'
+        l = str(len(end))
+        writer.write(l.encode())
+        writer.write(end)
+        print('Done. END notice sent to {}.'.format(add))
+
+    print('A total of {} bytes where sent.'.format(bcount))
+    print()
 
 
-def parse_command_line(description):
-    """Parse command line and return a socket address."""
-    parser = argparse.ArgumentParser(description=description)
-    parser.add_argument('host', help='IP or hostname')
-    parser.add_argument('-p', metavar='port', type=int, default=1060,
-                        help='TCP port (default 1060)')
-    parser.add_argument('-m', help="Will execute m algorithm, so you might as well choose an output filename.",
-                        default="topGenres")
-    parser.add_argument('-n', help="Will execute n algorithm, so you might as well choose an output filename.",
-                        default="topSongs")
-    parser.add_argument('-k', type=int, help="number of workers (nodes).", default=2)
-    args = parser.parse_args()
-    address = (args.host, args.p)
-
-    return address, args.k
-
-
-#@asyncio.coroutine
-async def send_to(writer, data):
-    answer = b'ok\n'
+async def send_hello(writer):
+    answer = b'HELLO CLIENT'
+    length = str(len(answer))
+    writer.write(length.encode())
     writer.write(answer)
 
 
-
-
-def read_f(filename):
-    with open(filename) as f:
+def readd(filename):
+    with open(_DATAPATH_+filename) as f:
         for line in f:
             yield line
 
@@ -91,45 +103,23 @@ def list_files(mypath):
     l = []
     for f in onlyfiles:
         if f.endswith('.txt'):
-            l.append(f)
+            if f.startswith('t'):
+                l.append(f)
     return l
 
 
-"""
-class TServer(asyncio.Protocol):
+def parse_command_line(description):
+    """Parse command line and return a socket address."""
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('host', help='IP or hostname')
+    parser.add_argument('-p', metavar='port', type=int, default=1060,
+                        help='TCP port (default 1060)')
+    parser.add_argument('-m', help="Will execute m algorithm.",
+                        default="topGenres")
+    parser.add_argument('-n', help="choose an output filename.",
+                        default="topSongs")
+    parser.add_argument('-k', type=int, help="number of workers (nodes).", default=2)
+    args = parser.parse_args()
+    address = (args.host, args.p)
 
-    def __init__(self, k):
-        self.k = k
-        self.n_conn = 0
-        self.k_workers = {}
-
-
-    def connection_made(self, transport):
-        self.transport = transport
-        self.address = transport.get_extra_info('peername')
-        print('Accepted connection from {}'.format(self.address))
-        self.n_conn += 1
-        self.k_workers[self.n_conn] = self.address
-        print('{} worker(s) connected, waiting for {} more...'.format(self.address, self.k - self.n_conn))
-
-        if self.n_conn == self.k:
-
-            self.send_files(self.transport)
-
-    def data_received(self, data):
-        self.data += data
-
-    def connection_lost(self, exc):
-        if exc:
-            print('Client {} error: {}'.format(self.address, exc))
-        elif self.data:
-            print('Client {} sent {} but then closed'
-                  .format(self.address, self.data))
-        else:
-            print('Client {} closed socket'.format(self.address))
-
-    def send_files(self, transport):
-
-        avl_f = list_files(_PATH_)
-
-"""
+    return address, args.k

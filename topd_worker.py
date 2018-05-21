@@ -1,5 +1,6 @@
 #! /usr/bin/env python3
-#-*- coding:utf-8 -*-
+# -*- coding:utf-8 -*-
+
 """
 Universidad Nacional Autonoma de Mexico
 Escuela Nacional de Estudios Superiores
@@ -11,75 +12,87 @@ Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
 
 import argparse
 import socket
+from time import sleep
 
 
 def client(address):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.connect(address)
 
-    if ok_greet(sock).startswith(b'o'):
-        #print(ok_greet(sock))
-        print('Ready to receive...')
+    ok, not_cool = ok_greet(sock)
+    if not_cool:
+        print('Something wrong, bye...')
+        sock.close()
+    else:
+        print('Server Response: ')
+        print(ok.decode('ascii'))
         print()
 
+
+        print('Ready to receive...')
+        print()
+        #sleep(1)
+
+        data = recvall(sock)
+        print(len(data))
+
         #receive_data(sock)
-    else:
-        print('someting wrong...')
-        print('closing...')
-        sock.close()
+    #else:
+    #    print('someting wrong...')
+    #    print('closing...')
+    #    sock.close()
     print('finished')
     print('Bye.')
     sock.close()
 
 
 def ok_greet(sock):
-    greet = 'ALL OK\n'
-    data = b''
+    not_cool = False
+    res = b''
     try:
-        sock.sendall(greet.encode())
-        data = recv_until(sock, b'\n')
+        length = sock.recv(2)
+        res = sock.recv(int(length))
+        # sock.sendall(greet.encode())
+
     except Exception as err:
         print('encountered error: {} while greeting '.format(err))
-    return data
+        not_cool = True
+    return res, not_cool
 
 
-def receive_data(sock):
-    data = ''
-    n = 0
-    b_count = 0
-    while True:
-        chunk = recv_until(sock, b'\n')
-        end = end_data(chunk)
-        if not end:
-            n += 1
-            b_count += len(chunk)
-            data += chunk
-            continue
-        else:
-            print('received {} lines with a total of {} bytes.'.format(n, b_count))
-            break
-
-    return data
-
-
-def end_data(chunk):
-    s = chunk.decode('ascii')
-
-
+def end_data(line):
+    end = False
+    # print('s')
+    if b'END' in line:
+        #print(chunk)
+        end = True
     return end
 
 
-def recv_until(sock, suffix):
-    """Receive bytes over socket `sock` until we receive the `suffix`."""
-    message = sock.recv(4096)  # arbitrary value of 4KB
-    if not message:
-        raise EOFError('socket closed')
-    while not message.endswith(suffix):
-        data = sock.recv(4096)
-        if not data:
-            raise IOError('received {!r} then socket closed'.format(message))
-        message += data
-    return message
+def recvall(sock):
+    data = b''
+    try:
+        done = False
+        while not done:
+            length = sock.recv(2)
+            length = int(length)
+            line = b''
+            while len(line) < length:
+                more = sock.recv(length - len(line))
+                if not more:
+                    raise EOFError('was expecting {} bytes but only received'
+                                   ' {} bytes before the socket closed'.format(
+                                   length, len(data)))
+                line += more
+                data += line
+                if end_data(line):
+                    done = True
+                    break
+
+    except Exception as err:
+        print('Error while receiving data: {}'.format(err))
+    return data
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Example client')
@@ -89,3 +102,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     address = (args.host, args.p)
     client(address)
+
+#EOF
