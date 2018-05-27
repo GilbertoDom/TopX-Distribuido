@@ -12,6 +12,7 @@ Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
 
 import asyncio
 import argparse
+import struct
 from os import listdir
 from os.path import isfile, join
 from time import sleep
@@ -20,11 +21,40 @@ from time import sleep
 _PATH_ = "/home/alumnos/PycharmProjects/topX"
 # _DATAPATH_ = "{}/ydata-ymusic-user-song-ratings-meta-v1_0/".format(_PATH_)
 _DATAPATH_ = "{}/data/".format(_PATH_)
+#_DATAPATH_ = "./"
 
 k = None
 n = 0
 workers = {}
 transports = {}
+
+header_struct = struct.Struct('!I')  # messages up to 2**32 - 1 in length
+
+
+async def recvall(reader, length):
+    blocks = []
+    while length:
+        block = await reader.read(length)
+        if not block:
+            raise EOFError('socket closed with {} bytes left'
+                           ' in this block'.format(length))
+        length -= len(block)
+        blocks.append(block)
+    return b''.join(blocks)
+
+
+async def get_block(reader):
+    data = await recvall(reader, header_struct.size)
+    (block_length,) = header_struct.unpack(data)
+    data = await recvall(reader, block_length)
+    return data.decode('ascii')
+
+
+async def put_block(writer, message):
+    encoded_message = message.encode('ascii')
+    block_length = len(encoded_message)
+    writer.write(header_struct.pack(block_length))
+    writer.write(encoded_message)
 
 
 async def handle_conversation(reader, writer):
@@ -42,7 +72,11 @@ async def handle_conversation(reader, writer):
         await send_data(k)
 
         print('Data successfully sent to workers.')
-        print('wait for response...')
+        print('Now sending additional files...')
+
+        additional()
+
+        print('Waiting for response...')
 
         #await receiving()
         print('Done')
@@ -54,7 +88,6 @@ async def send_data(k):
     print('Preparing to send data...')
 
     bcount = 0
-
     l_of_files = list_files(_DATAPATH_)
     for f in l_of_files:
         dat = readd(f)
@@ -63,10 +96,8 @@ async def send_data(k):
         for line in dat:
             address = workers[i]
             writer = transports[address][1]
-            length = str(len(line))
-            bcount += len(line.encode())
-            writer.write(length.encode())
-            writer.write(line.encode())
+            await put_block(writer, line)
+            bcount += len(line.encode('ascii'))
             i += 1
             if i > k:
                 i = 1
@@ -75,21 +106,19 @@ async def send_data(k):
 
     for add in workers.values():
         writer = transports[add][1]
-        end = b'END'
-        l = str(len(end))
-        writer.write(l.encode())
-        writer.write(end)
+        await send_EOT(writer)
         print('Done. END notice sent to {}.'.format(add))
 
     print('A total of {} bytes where sent.'.format(bcount))
     print()
 
 
+async def send_EOT(writer):
+    await put_block(writer, 'END')
+
+
 async def send_hello(writer):
-    answer = b'HELLO CLIENT'
-    length = str(len(answer))
-    writer.write(length.encode())
-    writer.write(answer)
+    await put_block(writer, 'HELLO CLIENT')
 
 
 def readd(filename):
@@ -103,9 +132,25 @@ def list_files(mypath):
     l = []
     for f in onlyfiles:
         if f.endswith('.txt'):
-            if f.startswith('t'):
+            if f.startswith('t'): # SRTM: Modified to test with only 1 file
                 l.append(f)
     return l
+
+
+async def additional():
+    to_send = ['genre-hierarchy.txt'
+               'song-attributes.txt']
+    for f in to_send:
+        dat = readd(f)
+        for line in dat:
+            for transp in transports.values():
+                writer = transp[1]
+                await put_block(writer, line)
+        for transp in transports.values():
+            writer = transp[1]
+            await send_EOT(writer)
+
+    print('Addtitional files sent to workers.')
 
 
 def parse_command_line(description):

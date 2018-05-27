@@ -9,10 +9,37 @@ Materia: Computo Distribuido
 Titulo: Proyecto 2, Top X: Yahoo Dataset
 Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
 """
-
 import argparse
 import socket
-from time import sleep
+import struct
+
+header_struct = struct.Struct('!I')  # messages up to 2**32 - 1 in length
+
+DATA = []
+
+
+def recvall(sock, length):
+    blocks = []
+    while length:
+        block = sock.recv(length)
+        if not block:
+            raise EOFError('socket closed with {} bytes left'
+                           ' in this block'.format(length))
+        length -= len(block)
+        blocks.append(block)
+    return b''.join(blocks)
+
+def get_block(sock):
+    data = recvall(sock, header_struct.size)
+    (block_length,) = header_struct.unpack(data)
+    data = recvall(sock, block_length)
+    return data.decode('ascii')
+
+def put_block(sock, message):
+    encoded_message = message.encode('ascii')
+    block_length = len(encoded_message)
+    sock.send(header_struct.pack(block_length))
+    sock.send(encoded_message)
 
 
 def client(address):
@@ -25,35 +52,48 @@ def client(address):
         sock.close()
     else:
         print('Server Response: ')
-        print(ok.decode('ascii'))
+        print(ok)
         print()
-
 
         print('Ready to receive...')
         print()
-        #sleep(1)
 
-        data = recvall(sock)
-        print(len(data))
+        lines_received = 0
+        data = get_block(sock)
+        while not end_data(data):
+            lines_received += 1
+            if lines_received % 10000 == 0:
+                print("\rLines received: {:,}".format(lines_received), end='')
 
-        #receive_data(sock)
+            l = [int(x) for x in data.rstrip().split('\t')]
+            DATA.append(l)
+
+            data = get_block(sock)
+
+        print()
+        print('Now receiving additional files...')
+
+        #f1 = ''
+        #data = get_block(sock)
+        #while not end_data()
+
+
+
+
     #else:
     #    print('someting wrong...')
     #    print('closing...')
     #    sock.close()
-    print('finished')
+    print('Finished')
     print('Bye.')
     sock.close()
 
 
 def ok_greet(sock):
     not_cool = False
-    res = b''
+    res = ''
     try:
-        length = sock.recv(2)
-        res = sock.recv(int(length))
-        # sock.sendall(greet.encode())
-
+        res = get_block(sock)
     except Exception as err:
         print('encountered error: {} while greeting '.format(err))
         not_cool = True
@@ -61,37 +101,8 @@ def ok_greet(sock):
 
 
 def end_data(line):
-    end = False
-    # print('s')
-    if b'END' in line:
-        #print(chunk)
-        end = True
+    end = True if line == 'END' else False
     return end
-
-
-def recvall(sock):
-    data = b''
-    try:
-        done = False
-        while not done:
-            length = sock.recv(2)
-            length = int(length)
-            line = b''
-            while len(line) < length:
-                more = sock.recv(length - len(line))
-                if not more:
-                    raise EOFError('was expecting {} bytes but only received'
-                                   ' {} bytes before the socket closed'.format(
-                                   length, len(data)))
-                line += more
-                data += line
-                if end_data(line):
-                    done = True
-                    break
-
-    except Exception as err:
-        print('Error while receiving data: {}'.format(err))
-    return data
 
 
 if __name__ == '__main__':
