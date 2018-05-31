@@ -10,12 +10,11 @@ Titulo: Proyecto 2, Top X: Yahoo Dataset
 Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
 """
 
-import asyncio
+
 import argparse
 import struct
 from os import listdir
 from os.path import isfile, join
-from time import sleep
 
 
 _PATH_ = "/home/alumnos/PycharmProjects/topX"
@@ -27,6 +26,7 @@ k = None
 n = 0
 workers = {}
 transports = {}
+results = []
 
 header_struct = struct.Struct('!I')  # messages up to 2**32 - 1 in length
 
@@ -60,27 +60,51 @@ async def put_block(writer, message):
 async def handle_conversation(reader, writer):
     global workers, transports, k, n
     address = writer.get_extra_info('peername')
-    print('Accepted connection from {}'.format(address))
+    receive_mode = False
     if address not in workers.values():
+        print('Accepted connection from {}'.format(address))
         n += 1
         workers[n] = address
         transports[address] = (reader, writer)
         print('{} worker(s) connected, waiting for {} more...'.format(n, k - n))
         await send_hello(writer)
 
-    if n == k:
-        await send_data(k)
+        if n == k:
+            await send_data(k)
 
-        print('Data successfully sent to workers.')
-        print('Now sending additional files...')
+            print('Data successfully sent to workers.')
+            print('Now sending additional files...')
 
-        additional()
+            await additional()
 
-        print('Waiting for response...')
+            print('Waiting for response...')
+            receive_mode = True
 
-        #await receiving()
-        print('Done')
-    # print('connection closed with {}'.format(address))
+    if address in workers.values() and receive_mode:
+        i = 0
+        response = ''
+        data = await get_block(reader)
+        while not end(data):
+            response += data
+            data = await get_block(reader)
+            i += 1
+            print('Response from: {}'.format(address))
+            print('Response: {}'.format(response))
+        results.append(response)
+        print('Received {} response(s)...'.format(i))
+        if i == k:
+            print('All responses received.')
+            final_result(results)
+
+
+    #print('Done')
+    #print('connection closed with {}'.format(address))
+
+
+def final_result(results):
+    for result in results:
+        l = result.split('\n')
+        print(l[0])
 
 
 async def send_data(k):
@@ -138,7 +162,7 @@ def list_files(mypath):
 
 
 async def additional():
-    to_send = ['genre-hierarchy.txt'
+    to_send = ['genre-hierarchy.txt',
                'song-attributes.txt']
     for f in to_send:
         dat = readd(f)
@@ -151,6 +175,11 @@ async def additional():
             await send_EOT(writer)
 
     print('Addtitional files sent to workers.')
+
+
+def end(data):
+    end = True if data == 'END' else False
+    return end
 
 
 def parse_command_line(description):
