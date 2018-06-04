@@ -7,7 +7,7 @@ Escuela Nacional de Estudios Superiores
 Licenciatura en Tecnologias para la Informacion en Ciencias
 Materia: Computo Distribuido
 Titulo: Proyecto 2, Top X: Yahoo Dataset
-Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
+Autor(es): Gilberto Carlos Dominguez Aguilar
 """
 import argparse
 import socket
@@ -85,7 +85,6 @@ def client(address):
 
         print('Now getting top 10 genres...')
         genres = get_top_genres(songs, song_map, genre_map)
-        #print(genres)
         print('Done.')
 
         print('Results ready, now sending to master...')
@@ -93,10 +92,6 @@ def client(address):
 
 
 
-    #else:
-    #    print('someting wrong...')
-    #    print('closing...')
-    #    sock.close()
     print('Finished')
     print('Bye.')
     sock.close()
@@ -107,7 +102,8 @@ def send_results(sock, songs, genres):
     song += '\n'
     gen = '\t'.join([str(x) for x in genres])
     gen += '\n'
-    message = song+gen
+    message = song + gen
+    #print("El mensaje es: {}".format(message))
     put_block(sock, message)
     put_block(sock, 'END')
 

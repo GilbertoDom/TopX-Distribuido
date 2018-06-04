@@ -7,7 +7,7 @@ Escuela Nacional de Estudios Superiores
 Licenciatura en Tecnologias para la Informacion en Ciencias
 Materia: Computo Distribuido
 Titulo: Proyecto 2, Top X: Yahoo Dataset
-Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
+Autor(es): Gilberto Carlos Dominguez Aguilar
 """
 
 
@@ -15,12 +15,12 @@ import argparse
 import struct
 from os import listdir
 from os.path import isfile, join
+from ast import literal_eval as make_tuple
+import operator
 
 
 _PATH_ = "/home/alumnos/PycharmProjects/topX"
-# _DATAPATH_ = "{}/ydata-ymusic-user-song-ratings-meta-v1_0/".format(_PATH_)
-_DATAPATH_ = "{}/data/".format(_PATH_)
-#_DATAPATH_ = "./"
+_DATAPATH_ = "{}/ydata-ymusic-user-song-ratings-meta-v1_0/".format(_PATH_)
 
 k = None
 n = 0
@@ -58,9 +58,9 @@ async def put_block(writer, message):
 
 
 async def handle_conversation(reader, writer):
-    global workers, transports, k, n
+    global workers, transports, k, n, results
     address = writer.get_extra_info('peername')
-    receive_mode = False
+
     if address not in workers.values():
         print('Accepted connection from {}'.format(address))
         n += 1
@@ -70,6 +70,7 @@ async def handle_conversation(reader, writer):
         await send_hello(writer)
 
         if n == k:
+            print('Preparing to send data...')
             await send_data(k)
 
             print('Data successfully sent to workers.')
@@ -78,38 +79,68 @@ async def handle_conversation(reader, writer):
             await additional()
 
             print('Waiting for response...')
-            receive_mode = True
 
-    if address in workers.values() and receive_mode:
-        i = 0
-        response = ''
-        data = await get_block(reader)
-        while not end(data):
-            response += data
-            data = await get_block(reader)
-            i += 1
-            print('Response from: {}'.format(address))
-            print('Response: {}'.format(response))
-        results.append(response)
-        print('Received {} response(s)...'.format(i))
-        if i == k:
+            i = 0
+            for transp in transports.values():
+                lector = transp[0]
+                response = ''
+                data = await get_block(lector)
+                while not end(data):
+                    response += data
+                    data = await get_block(lector)
+                results.append(response)
+                i += 1
+                print('Received {} response(s)...'.format(i))
+
             print('All responses received.')
-            final_result(results)
+            top_songs, top_gens = final_result(results)
+            with open('final_results.txt', 'w') as f:
+                for song in top_songs:
+                    f.write(str(song))
+                    f.write('\t')
 
+                f.write('\n')
 
-    #print('Done')
-    #print('connection closed with {}'.format(address))
+                for gen in top_gens:
+                    f.write(str(gen))
+                    f.write('\t')
+            print('Results ready.')
+
+    print('Done')
+
 
 
 def final_result(results):
+    Score = []
+    final = {}
+    countdown = []
+    gen = []
     for result in results:
         l = result.split('\n')
-        print(l[0])
+        countdown += l[0].split('\t')
+        gen += l[1].split('\t')
+
+    for t in countdown:
+        song = make_tuple(t)
+        id, rate = song[0], song[1]
+        if id not in final.keys():
+            final[id] = rate
+        else:
+            final[id] += rate
+
+    for i in range(10):
+        top_rated = max(final.items(), key=operator.itemgetter(1))[0]
+        Score.append(top_rated)
+        del final[top_rated]
+
+    top_g = set(gen)
+
+    return Score, top_g
 
 
 async def send_data(k):
 
-    print('Preparing to send data...')
+    print('sending data...')
 
     bcount = 0
     l_of_files = list_files(_DATAPATH_)
@@ -170,6 +201,7 @@ async def additional():
             for transp in transports.values():
                 writer = transp[1]
                 await put_block(writer, line)
+
         for transp in transports.values():
             writer = transp[1]
             await send_EOT(writer)
@@ -188,7 +220,7 @@ def parse_command_line(description):
     parser.add_argument('host', help='IP or hostname')
     parser.add_argument('-p', metavar='port', type=int, default=1060,
                         help='TCP port (default 1060)')
-    parser.add_argument('-m', help="Will execute m algorithm.",
+    parser.add_argument('-m', help="m algorithm.",
                         default="topGenres")
     parser.add_argument('-n', help="choose an output filename.",
                         default="topSongs")

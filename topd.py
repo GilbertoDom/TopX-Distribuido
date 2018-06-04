@@ -6,7 +6,7 @@ Escuela Nacional de Estudios Superiores
 Licenciatura en Tecnologias para la Informacion en Ciencias
 Materia: Computo Distribuido
 Titulo: Proyecto 2, Top X: Yahoo Dataset
-Autor(es): Gilberto Carlos Dominguez Aguilar, Misael Centeno Olivares
+Autor(es): Gilberto Carlos Dominguez Aguilar
 """
 
 import asyncio
